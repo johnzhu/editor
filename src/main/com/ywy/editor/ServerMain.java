@@ -1,5 +1,6 @@
 package com.ywy.editor;
 
+import com.fasterxml.jackson.jaxrs.json.JacksonJsonProvider;
 import org.glassfish.grizzly.http.server.HttpServer;
 import org.glassfish.jersey.grizzly2.httpserver.GrizzlyHttpServerFactory;
 import org.glassfish.jersey.server.ResourceConfig;
@@ -21,7 +22,7 @@ public class ServerMain {
          */
         public static HttpServer startServer() {
             // create a resource config that scans for JAX-RS resources and provided
-            final ResourceConfig rc = new ResourceConfig().registerClasses(TableServices.class);
+            final ResourceConfig rc = new ResourceConfig().register(JacksonJsonProvider.class).registerClasses(TableServices.class);
 
             // create and start a new instance of grizzly http server
             // exposing the Jersey application at BASE_URI
