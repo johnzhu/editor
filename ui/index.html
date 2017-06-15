@@ -18,7 +18,7 @@
         getInitialState: function() {
             return {
                 tables: [],
-                data:[],
+                tabledata:{metadata :[], data:[]},
                 dburl:'',
                 user:'',
                 pwd:''
@@ -39,8 +39,23 @@
             axios(sendas)
                 .then(function(response){
                     console.log(response.data); // ex.: { user: 'Your User'}
+                    this.setState({tabledata:response.data})
                     console.log(response.status); // ex.: 200
-                });
+                }.bind(this));
+        },
+        onTableUpdate:function (e) {
+            var tdata = this.state.tabledata.data.slice();
+            var newdata = tdata.map((d,index) => {
+                console.log("index comapre ==" + e.target.id == index)
+                console.log("index comapre ===" + e.target.id === index)
+                console.log("index comapre to string" + e.target.id == index.toString())
+                if (index == e.target.id) {
+                    d[e.target.name] = e.target.value
+                }
+
+                return d;
+            })
+            this.setState({tdata:newdata});
         },
         opendb:function (e) {
 
@@ -72,7 +87,9 @@
                     console.log(response.status); // ex.: 200
                 }.bind(this));
         },
-
+        update:function (e) {
+          console.log(this.state.tabledata)
+        },
         render: function(){
             var topp={width: '100%'}
             var left={float:'left',width: '20%'}
@@ -88,11 +105,37 @@
                 <div style={left}>
                     <p>Table</p>
                     <ul>{this.state.tables.map((table) => <li> <button onClick={this.readTables.bind(this, table.toString())}>)>{table}</button></li>)}
-
                     </ul>
                 </div>
                 <div style={right}>
                     <p>Data</p>
+                    <table  board="1">
+                        <thead>
+                        <tr>
+                        {this.state.tabledata.metadata.map((x)=>
+                            <th>{x.name}</th>
+                        )}
+                        </tr>
+                        </thead>
+
+                        <tbody>
+                        {this.state.tabledata.data.map((x,index)=>
+                        {
+                            var row = this.state.tabledata.metadata.map((y) => {
+                                if (y.incre) {
+                                    return <td>{x[y.name]}</td>
+                                } else {
+                                    return <td>
+                                        <input type='text' name={y.name} id={index} value={x[y.name]}
+                                               onChange={this.onTableUpdate}/>
+                                    </td>
+                                }
+                            })
+                            return <tr>{row}</tr>
+                        })}
+                        </tbody>
+                    </table>
+                    <input type="button" onClick={this.update} value="Update"></input>
                 </div>
                 </div>
             </div>
@@ -100,6 +143,16 @@
             );
         }
     });
+    class EditableCell extends React.Component {
+        render() {
+            return (
+                    <td>
+                        <input type='text' name={this.props.cellData.type} id={this.props.cellData.id} value={this.props.cellData.value} onChange={this.props.onProductTableUpdate}/>
+                    </td>
+            );
+
+        }
+    }
     ReactDOM.render(<App />, document.querySelector('#container'))
 </script>
 </body>
