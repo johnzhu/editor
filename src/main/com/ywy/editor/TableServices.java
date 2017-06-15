@@ -12,6 +12,9 @@ import javax.ws.rs.core.Response;
 import java.sql.*;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiFunction;
+import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -124,7 +127,7 @@ public class TableServices {
         }
         return Response.status(404).build();
     }
-    @PUT
+    @POST
     @Path("tables/{name}")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
@@ -157,50 +160,49 @@ public class TableServices {
             System.out.println(insertSql);
 
             try(Connection conn = DriverManager.getConnection(connString)) {
+                conn.setAutoCommit(false);
                 Set<String> pFields = getPrimaryKeyColumnsForTable(conn, tableName);
                 JSONArray data = obj.getJSONArray("data");
-                if (data != null) {
+                if (data != null && pFields.size() > 0) {
                     for(int i = 0 ; i < data.length(); i++) {
                         PreparedStatement st = conn.prepareStatement(insertSql.toString());
                         JSONObject rec = data.getJSONObject(i);
                         AtomicInteger fieldInx = new AtomicInteger(1);
-                        dataFields.forEach(x -> {
+                        Function<String, Integer> setFields = (x) -> {
+                            int colIndex = fieldInx.getAndIncrement();
                             try {
-                                st.setObject(fieldInx.getAndIncrement(), rec.get(x));
-                            } catch (SQLException e) {
+                                if (rec.has(x) && rec.get(x) != null) {
+                                    st.setObject(colIndex, rec.get(x));
+                                }else {
+                                    st.setObject(colIndex,null);
+                                }
+                            } catch (Exception e) {
                                 e.printStackTrace();
                             }
+                            return colIndex;
+                        };
+                        dataFields.forEach(x -> {
+                            setFields.apply(x);
                         });
                         keyFields.forEach(x -> {
-                            try {
-                                st.setObject(fieldInx.getAndIncrement(), rec.get(x));
-                            } catch (SQLException e) {
-                                e.printStackTrace();
-                            }
+                            setFields.apply(x);
                         });
                         autoFields.forEach(x -> {
-                            try {
-                                st.setObject(fieldInx.getAndIncrement(), rec.get(x));
-                            } catch (SQLException e) {
-                                e.printStackTrace();
-                            }
+                            setFields.apply(x);
                         });
                         dataFields.forEach(x -> {
-                            try {
-                                st.setObject(fieldInx.getAndIncrement(), rec.get(x));
-                            } catch (SQLException e) {
-                                e.printStackTrace();
-                            }
+                            setFields.apply(x);
                         });
 
                         System.out.println(st);
-                        //st.executeUpdate();
+                        st.executeUpdate();
                     }
-                    //conn.commit();
-                    return getTableData(session,tableName);
+                    conn.commit();
+
                 }
+                return getTableData(session,tableName);
             }
-            catch (SQLException e) {
+            catch (Exception e) {
                 e.printStackTrace();
             }
         }
