@@ -10,9 +10,9 @@ import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
 import java.sql.*;
-import java.util.ArrayList;
-import java.util.Set;
-import java.util.TreeSet;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 /**
  * Created by john on 6/12/2017.
@@ -20,7 +20,7 @@ import java.util.TreeSet;
 @Path("/")
 public class TableServices {
     static String connString = null;
-    @PUT
+    @POST
     @Path("open")
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
@@ -59,7 +59,7 @@ public class TableServices {
         if (connString != null) {
             try(Connection conn = DriverManager.getConnection(connString)) {
                 Statement s = conn.createStatement();
-                try (ResultSet rs = s.executeQuery("SELECT TABLE_NAME,  TABLE_SCHEMA FROM information_schema.tables where TABLE_TYPE='BASE TABLE'")) {
+                try (ResultSet rs = s.executeQuery("SELECT TABLE_SCHEMA,TABLE_NAME FROM information_schema.tables where TABLE_TYPE='BASE TABLE'")) {
                     JSONArray json = new JSONArray();
 
                     while (rs.next()) {
@@ -69,7 +69,7 @@ public class TableServices {
                             obj.put(rs.getMetaData().getColumnName(i), rs.getObject(i));
 
                         }
-                        json.put(obj);
+                        json.put(rs.getString(1) + "." + rs.getString(2));
                     }
                     return Response.ok(json.toString()).build();
                 }
@@ -99,9 +99,10 @@ public class TableServices {
                     for (int i = 1; i <= size; i++) {
                         JSONObject obj = new JSONObject();
                         obj.put("name",medaData.getColumnName(i));
-                        obj.put("isKey", pcols.contains(medaData.getColumnName(i)));
+                        obj.put("key", pcols.contains(medaData.getColumnName(i)));
                         obj.put("type", medaData.getColumnTypeName(i));
-                        cols.put( new JSONObject().put(medaData.getColumnName(i),obj));
+                        obj.put("incre", medaData.isAutoIncrement(i));
+                        cols.put(obj);
                     }
                     metaObj.put("columns", cols);
                     while (rs.next()) {
@@ -131,46 +132,73 @@ public class TableServices {
         if (connString != null) {
             ArrayList<String> dataFields = new ArrayList<String>();
             ArrayList<String> autoFields = new ArrayList<String>();
+            ArrayList<String> keyFields = new ArrayList<String>();
+            JSONObject obj = new JSONObject(objstr);
+            JSONArray metadata = obj.getJSONArray("metadata");
+            for(int i = 0 ; i < metadata.length(); i++) {
+                JSONObject col = metadata.getJSONObject(i);
+                if (col.getBoolean("incre")) {
+                    autoFields.add(col.getString("name"));
+                }
+                else if (col.getBoolean("key")) {
+                    keyFields.add(col.getString("name"));
+                }
+                else {
+                    dataFields.add(col.getString("name"));
+                }
+            }
+            StringBuffer updatesql;
+            StringBuffer insertSql = new StringBuffer("INSERT INTO ").append(tableName).append("(").append(String.join("," , dataFields));
+            if (keyFields.size() > 0) insertSql.append(",").append(String.join("," , keyFields));
+            if (autoFields.size() > 0) insertSql.append(",").append(String.join("," , autoFields));
+            insertSql.append(") VALUES(").append(String.join(",", Collections.nCopies(dataFields.size() + keyFields.size() + autoFields.size() ,"?"))).append(")");
+            insertSql.append(" ON DUPLICATE KEY UPDATE ").append(String.join(",", dataFields.stream().map(x->x+"= ?").collect(Collectors.toList())));
+
+            System.out.println(insertSql);
 
             try(Connection conn = DriverManager.getConnection(connString)) {
                 Set<String> pFields = getPrimaryKeyColumnsForTable(conn, tableName);
-                Statement s = conn.createStatement();
-                try (ResultSet rs = s.executeQuery("SELECT * FROM " + tableName + " where  1=0")) {
-                    ResultSetMetaData metaData = rs.getMetaData();
-                    for (int i = 1; i <= metaData.getColumnCount(); i++) {
-                        String colName = metaData.getCatalogName(i);
-                        if (metaData.isAutoIncrement(i)) {
-                            autoFields.add(colName);
-                        } else if (!pFields.contains(colName)) {
-                            dataFields.add(colName);
-                        }
-                    }
-                }
-                JSONObject obj = new JSONObject(objstr);
                 JSONArray data = obj.getJSONArray("data");
                 if (data != null) {
                     for(int i = 0 ; i < data.length(); i++) {
+                        PreparedStatement st = conn.prepareStatement(insertSql.toString());
                         JSONObject rec = data.getJSONObject(i);
-                        boolean insert = true;
-                        for (String a : autoFields) {
-                            if (rec.get(a) != null && rec.getInt(a) != 0) {
-                                //update statement
-                                insert = false;
-                                break;
+                        AtomicInteger fieldInx = new AtomicInteger(1);
+                        dataFields.forEach(x -> {
+                            try {
+                                st.setObject(fieldInx.getAndIncrement(), rec.get(x));
+                            } catch (SQLException e) {
+                                e.printStackTrace();
                             }
+                        });
+                        keyFields.forEach(x -> {
+                            try {
+                                st.setObject(fieldInx.getAndIncrement(), rec.get(x));
+                            } catch (SQLException e) {
+                                e.printStackTrace();
+                            }
+                        });
+                        autoFields.forEach(x -> {
+                            try {
+                                st.setObject(fieldInx.getAndIncrement(), rec.get(x));
+                            } catch (SQLException e) {
+                                e.printStackTrace();
+                            }
+                        });
+                        dataFields.forEach(x -> {
+                            try {
+                                st.setObject(fieldInx.getAndIncrement(), rec.get(x));
+                            } catch (SQLException e) {
+                                e.printStackTrace();
+                            }
+                        });
 
-                        }
-                        if (insert) {
-                            String sql = "INSERT INTO " + tableName + "(" + String.join("," , dataFields) + ")";
-                        }
-                        else {
-
-                        }
-                        conn.commit();
+                        System.out.println(st);
+                        //st.executeUpdate();
                     }
-
+                    //conn.commit();
+                    return getTableData(session,tableName);
                 }
-                PreparedStatement st = conn.prepareStatement(sql);
             }
             catch (SQLException e) {
                 e.printStackTrace();
